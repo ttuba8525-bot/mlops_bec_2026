@@ -44,4 +44,9 @@ boto3==1.34.101        # AWS SDK (ECR, S3, EC2 API calls)
 joblib==1.4.2          # model serialisation fallback
 python-multipart==0.0.9
 requests==2.32.2
+<<<<<<< HEAD
 PyYAML==6.0.1
+=======
+PyYAML==6.0.1
+
+boto3=1.34.101
