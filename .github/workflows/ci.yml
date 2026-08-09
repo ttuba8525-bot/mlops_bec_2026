@@ -1,0 +1,132 @@
+# ══════════════════════════════════════════════════════════════════════
+#  .github/workflows/ci.yml — MLOps CI/CD Pipeline (Session 8)
+#
+#  TRIGGERS: every push to any branch, every pull request targeting main
+#
+#  JOB 1 (test-and-evaluate): runs on every push
+#    - installs dependencies
+#    - runs pytest unit tests
+#    - trains a model and evaluates it against quality gates
+#    - exits 1 if any gate fails — blocking Job 2
+#
+#  JOB 2 (build-and-push): only runs if Job 1 succeeds AND branch is main
+#    - builds the Docker image
+#    - pushes to Docker Hub
+#
+#  REQUIRED GITHUB SECRETS (Settings → Secrets and Variables → Actions):
+#    DOCKERHUB_USERNAME       your Docker Hub username
+#    DOCKERHUB_TOKEN          Docker Hub access token (not your password)
+#    MLFLOW_TRACKING_URI      optional — MLflow server URL (if hosted)
+# ══════════════════════════════════════════════════════════════════════
+
+name: MLOps CI/CD Pipeline
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.11"
+  IMAGE_NAME: churn-api
+  AWS_REGION: ap-south-1          # add
+  ECR_REPOSITORY: churn-api-tuba-056       # add
+
+jobs:
+  # ════════════════════════════════════════════════════════════════════
+  # JOB 1: Test and Evaluate
+  # ════════════════════════════════════════════════════════════════════
+  test-and-evaluate:
+    name: Test and Evaluate Model
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Pull DVC data from S3
+        run: |
+         dvc pull
+
+      - name: Run unit tests
+        run: pytest tests/ -v --tb=short
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+
+      - name: Train model
+        run: python src/train.py --tracking_uri "${{ secrets.MLFLOW_TRACKING_URI || 'http://localhost:5001' }}"
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        continue-on-error: true
+        # continue-on-error: true because MLflow may not be reachable in CI —
+        # the model still trains and saves locally to models/best_model.pkl,
+        # which is what evaluate.py falls back to below.
+
+      - name: Evaluate model quality (quality gate)
+        run: |
+          python src/evaluate.py --model_path models/best_model.pkl
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        # This step's exit code is what determines whether Job 2 runs.
+        # If evaluate.py exits 1 (gate failed), this step fails, and
+        # build-and-push below is automatically skipped via `needs`.
+      - name: Push updated artifacts to DVC remote
+        run: dvc push
+
+  # ════════════════════════════════════════════════════════════════════
+  # JOB 2: Build and Push Docker Image
+  # Only runs if Job 1 succeeds AND the push is to the main branch.
+  # ════════════════════════════════════════════════════════════════════
+  build-and-push:
+    name: Build and Push Docker Image
+    needs: test-and-evaluate
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image to ECR
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+
+      - name: Deployment summary
+        run: |
+          echo "== Image pushed to Docker Hub =="
+          echo "Image: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest"
+          echo "SHA tag: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
