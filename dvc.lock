@@ -1,0 +1,64 @@
+schema: '2.0'
+stages:
+  train:
+    cmd: python src/train.py --data_path data/raw/telco_churn.csv --n_estimators
+      300 --max_depth 8 --learning_rate 0.05 --subsample 0.8 --colsample_bytree 
+      0.8 --min_child_weight 1 --gamma 0.0 --test_size 0.2 --random_state 42 
+      --experiment_name churn_prediction
+    deps:
+    - path: data/raw/telco_churn.csv
+      hash: md5
+      md5: 0f9de68e012bd3aed5fa7cdc9fc421af
+      size: 977501
+    - path: src/train.py
+      hash: md5
+      md5: 8ae3eac9102b4b9168921c11309dc825
+      size: 10758
+    params:
+      params.yaml:
+        train.colsample_bytree: 0.8
+        train.experiment_name: churn_prediction
+        train.gamma: 0.0
+        train.learning_rate: 0.05
+        train.max_depth: 8
+        train.min_child_weight: 1
+        train.n_estimators: 300
+        train.random_state: 42
+        train.subsample: 0.8
+        train.test_size: 0.2
+    outs:
+    - path: metrics/scores.json
+      hash: md5
+      md5: bf7db217f58754fbb84daed5d2afe743
+      size: 70
+    - path: models/best_model.pkl
+      hash: md5
+      md5: c83984e14b31d3a20abeb909f0fc801b
+      size: 1780454
+  evaluate:
+    cmd: python src/evaluate.py --data_path data/raw/telco_churn.csv 
+      --model_path models/best_model.pkl --min_accuracy 0.78 --min_auc_roc 0.8 
+      --min_f1_score 0.55
+    deps:
+    - path: data/raw/telco_churn.csv
+      hash: md5
+      md5: 0f9de68e012bd3aed5fa7cdc9fc421af
+      size: 977501
+    - path: models/best_model.pkl
+      hash: md5
+      md5: c83984e14b31d3a20abeb909f0fc801b
+      size: 1780454
+    - path: src/evaluate.py
+      hash: md5
+      md5: f5075b47c4ff044c753e4011108aaf8c
+      size: 7653
+    params:
+      params.yaml:
+        evaluate.min_accuracy: 0.78
+        evaluate.min_auc_roc: 0.8
+        evaluate.min_f1_score: 0.55
+    outs:
+    - path: metrics/eval_scores.json
+      hash: md5
+      md5: bf7db217f58754fbb84daed5d2afe743
+      size: 70
