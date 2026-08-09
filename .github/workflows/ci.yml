@@ -30,7 +30,7 @@ on:
 env:
   PYTHON_VERSION: "3.11"
   IMAGE_NAME: churn-api
-  AWS_REGION: ap-south-1          # add
+  AWS_REGION: ap-south-2         # add
   ECR_REPOSITORY: churn-api-tuba-056       # add
 
 jobs:
